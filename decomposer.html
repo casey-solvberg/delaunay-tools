@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SVG Color Decomposer</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/d3-delaunay@6.0.4/dist/d3-delaunay.min.js"></script>
+</head>
+<body>
+    <nav>
+        <a href="index.html">Delaunay Generator</a>
+        <a href="decomposer.html" class="active">Color Decomposer</a>
+        <a href="hue_shift.html">Hue Matrix Shift</a>
+    </nav>
+    <div class="app-container" id="appContainer">
+        <div class="output-window" id="outputWindow" title="Click and hold to view original image">
+            <div id="paneOriginal" class="svg-pane"><img id="originalImagePreview" /></div>
+            <div id="paneDecomposed" class="svg-pane active"><canvas id="outputCanvas"></canvas></div>
+            <div id="status">Processing...</div>
+        </div>
+        
+        <input type="file" id="imageFile" accept="image/*">
+        
+        <div class="controls-bar">
+            <div class="dropdown">
+                <button class="control-button" id="uploadMenuBtn" title="Select Image">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                </button>
+                <div id="uploadDropdown" class="dropdown-content">
+                    <a href="#" data-val="Mona_Lisa.png">Mona Lisa</a>
+                    <a href="#" data-val="Marilyn_Monroe.jpg">Marilyn Monroe</a>
+                    <a href="#" data-val="custom">📁 Upload custom...</a>
+                </div>
+            </div>
+
+            <button class="control-button" id="processButton" title="Process" disabled>
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+            </button>
+
+            <button class="control-button" id="downloadSVGButton" title="Download SVG" disabled>
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+            </button>
+        </div>
+    </div>
+    <div id="sourceCanvasContainer"><canvas id="sourceCanvas"></canvas></div>
+
+<script>
+    const PRIMITIVE_COLORS_CSS_MAP = {
+        'black':  { fill: '#000000', stroke: 'none' }, 'white':  { fill: '#FFFFFF', stroke: 'none' },
+        'red':    { fill: '#FF0000', stroke: 'none' }, 'green':  { fill: '#00FF00', stroke: 'none' },
+        'blue':   { fill: '#0000FF', stroke: 'none' }, 'cyan':   { fill: '#00FFFF', stroke: 'none' },
+        'magenta':{ fill: '#FF00FF', stroke: 'none' }, 'yellow': { fill: '#FFFF00', stroke: 'none' }
+    };
+    function distance(p1, p2) { return Math.sqrt((p1[0]-p2[0])**2 + (p1[1]-p2[1])**2); }
+    function addPoints(p1,p2){return[p1[0]+p2[0],p1[1]+p2[1]];}
+    function subPoints(p1,p2){return[p1[0]-p2[0],p1[1]-p2[1]];}
+    function scalePointScalar(p,s){return[p[0]*s,p[1]*s];}
+    function getCentroid(v_a,v_b,v_c){return[(v_a[0]+v_b[0]+v_c[0])/3.0,(v_a[1]+v_b[1]+v_c[1])/3.0];}
+    function scaleVertexFromCenter(vertex, center, scaleFactor) {
+        return addPoints(center, scalePointScalar(subPoints(vertex, center), scaleFactor));
+    }
+    function getBarycenter(v_a,v_b,v_c,m_a,m_b,m_c){
+        const s_m=m_a+m_b+m_c; if(s_m < 1e-6)return getCentroid(v_a,v_b,v_c);
+        return[(m_a*v_a[0]+m_b*v_b[0]+m_c*v_c[0])/s_m,(m_a*v_a[1]+m_b*v_b[1]+m_c*v_c[1])/s_m];
+    }
+    function decomposeRgbToQ(r_in, g_in, b_in) {
+        let q_k = 255 - Math.max(r_in, g_in, b_in);
+        let q_w_total = Math.min(r_in, g_in, b_in);
+        let r_rem = r_in - q_w_total, g_rem = g_in - q_w_total, b_rem = b_in - q_w_total;
+        let q_c = 0, q_m = 0, q_y = 0;
+        if (r_rem > 0 && g_rem > 0 && b_rem == 0) { q_y = Math.min(r_rem, g_rem); r_rem -= q_y; g_rem -= q_y; }
+        else if (r_rem > 0 && b_rem > 0 && g_rem == 0) { q_m = Math.min(r_rem, b_rem); r_rem -= q_m; b_rem -= q_m; }
+        else if (g_rem > 0 && b_rem > 0 && r_rem == 0) { q_c = Math.min(g_rem, b_rem); g_rem -= q_c; b_rem -= q_c; }
+        return {'K':q_k,'W_total':q_w_total,'C':q_c,'M':q_m,'Y':q_y,'R_pure':r_rem,'G_pure':g_rem,'B_pure':b_rem};
+    }
+    
+    class Decomposer {
+        constructor() { this.polygons = []; }
+        addPoly(vertices, colorKey) {
+            if (!vertices || vertices.length < 3) return;
+            this.polygons.push({ vertices, colorKey });
+        }
+        decompose(v_a_orig, v_b_orig, v_c_orig, r_in, g_in, b_in) {
+            const qValues = decomposeRgbToQ(r_in, g_in, b_in);
+            const q_k = qValues['K']; const q_w_total = qValues['W_total'];
+            const qCoreCandidates = [];
+            const qKeyToPrimitiveName = {'C':'cyan','M':'magenta','Y':'yellow','R_pure':'red','G_pure':'green','B_pure':'blue'};
+            Object.keys(qKeyToPrimitiveName).forEach(qKey => { if (qValues[qKey] > 0) qCoreCandidates.push({ name: qKeyToPrimitiveName[qKey], q: qValues[qKey] }); });
+            const qSumCore = qCoreCandidates.reduce((sum, item) => sum + item.q, 0);
+
+            if (q_w_total === 255) { this.addPoly([v_a_orig, v_b_orig, v_c_orig], 'white'); return; }
+            if (q_k === 255 && q_w_total === 0) {
+                const p_apex = getCentroid(v_a_orig, v_b_orig, v_c_orig);
+                this.addPoly([v_a_orig, v_b_orig, p_apex], 'black'); this.addPoly([v_b_orig, v_c_orig, p_apex], 'black'); this.addPoly([v_c_orig, v_a_orig, p_apex], 'black'); return;
+            }
+            if (qSumCore === 255 && q_k === 0 && q_w_total === 0) {
+                const p_apex = getCentroid(v_a_orig, v_b_orig, v_c_orig);
+                const coreColor = qCoreCandidates[0].name;
+                this.addPoly([v_a_orig, v_b_orig, p_apex], coreColor); this.addPoly([v_b_orig, v_c_orig, p_apex], coreColor); this.addPoly([v_c_orig, v_a_orig, p_apex], coreColor); return;
+            }
+
+            let t_eff_va = v_a_orig, t_eff_vb = v_b_orig, t_eff_vc = v_c_orig;
+            const p_cen_orig = getCentroid(v_a_orig, v_b_orig, v_c_orig);
+
+            if (q_w_total > 0) {
+                let scaleFactorNum = qSumCore + q_k; let scaleFactorDenom = qSumCore + q_k + q_w_total;
+                if (scaleFactorDenom < 1e-6) scaleFactorDenom = 1.0; 
+                const s_eff = Math.sqrt(scaleFactorNum / scaleFactorDenom);
+                t_eff_va = scaleVertexFromCenter(v_a_orig, p_cen_orig, s_eff); t_eff_vb = scaleVertexFromCenter(v_b_orig, p_cen_orig, s_eff); t_eff_vc = scaleVertexFromCenter(v_c_orig, p_cen_orig, s_eff);
+                this.addPoly([v_a_orig, v_b_orig, t_eff_vb, t_eff_va], 'white'); this.addPoly([v_b_orig, v_c_orig, t_eff_vc, t_eff_vb], 'white'); this.addPoly([v_c_orig, v_a_orig, t_eff_va, t_eff_vc], 'white');
+            }
+            if (qSumCore === 0 && q_k === 0) return;
+
+            let p_bary_eff_for_apex = getCentroid(t_eff_va, t_eff_vb, t_eff_vc); 
+            if (qSumCore > 0) { 
+                qCoreCandidates.sort((a, b) => b.q - a.q || a.name.localeCompare(b.name));
+                let mass_Va_contrib = 0, mass_Vb_contrib = 0, mass_Vc_contrib = 0; let color_face_VbVc, color_face_VcVa, color_face_VaVb; 
+                const cNames = qCoreCandidates.map(c => c.name); const qValuesForMass = qCoreCandidates.map(c => c.q);
+                if (qCoreCandidates.length === 1) {
+                    color_face_VaVb = cNames[0]; color_face_VbVc = cNames[0]; color_face_VcVa = cNames[0];
+                    mass_Va_contrib = qValuesForMass[0]; mass_Vb_contrib = qValuesForMass[0]; mass_Vc_contrib = qValuesForMass[0]; 
+                } else { 
+                    const C1 = cNames[0], Q1 = qValuesForMass[0], C2 = cNames[1], Q2 = qValuesForMass[1], C3 = (cNames.length >= 3) ? cNames[2] : C2, Q3 = (qValuesForMass.length >=3) ? qValuesForMass[2] : Q2;
+                    const sides_eff_color_assign = [ 
+                        { faceKey: 'VbVc', len: distance(t_eff_vb, t_eff_vc), color: C1, q: Q1 }, 
+                        { faceKey: 'VcVa', len: distance(t_eff_vc, t_eff_va), color: C2, q: Q2 }, 
+                        { faceKey: 'VaVb', len: distance(t_eff_va, t_eff_vb), color: C3, q: Q3 }  
+                    ];
+                    sides_eff_color_assign.sort((s1, s2) => s2.len - s1.len);
+                    sides_eff_color_assign[0].color = C1; sides_eff_color_assign[0].q = Q1;
+                    sides_eff_color_assign[1].color = C2; sides_eff_color_assign[1].q = Q2;
+                    sides_eff_color_assign[2].color = C3; sides_eff_color_assign[2].q = Q3;
+                    color_face_VbVc = sides_eff_color_assign.find(s => s.faceKey === 'VbVc').color; color_face_VcVa = sides_eff_color_assign.find(s => s.faceKey === 'VcVa').color; color_face_VaVb = sides_eff_color_assign.find(s => s.faceKey === 'VaVb').color;
+                    mass_Va_contrib = sides_eff_color_assign.find(s => s.faceKey === 'VbVc').q; mass_Vb_contrib = sides_eff_color_assign.find(s => s.faceKey === 'VcVa').q; mass_Vc_contrib = sides_eff_color_assign.find(s => s.faceKey === 'VaVb').q;
+                }
+                p_bary_eff_for_apex = getBarycenter(t_eff_va, t_eff_vb, t_eff_vc, mass_Va_contrib, mass_Vb_contrib, mass_Vc_contrib);
+                let s_cut_factor; const denom_core_black = q_k + qSumCore;
+                if (denom_core_black < 1e-6) s_cut_factor = 0; else s_cut_factor = Math.sqrt(Math.max(0, q_k) / denom_core_black);
+
+                if (q_k > 0) { 
+                    const v_a_cut = addPoints(p_bary_eff_for_apex, scalePointScalar(subPoints(t_eff_va, p_bary_eff_for_apex), s_cut_factor));
+                    const v_b_cut = addPoints(p_bary_eff_for_apex, scalePointScalar(subPoints(t_eff_vb, p_bary_eff_for_apex), s_cut_factor));
+                    const v_c_cut = addPoints(p_bary_eff_for_apex, scalePointScalar(subPoints(t_eff_vc, p_bary_eff_for_apex), s_cut_factor));
+                    this.addPoly([p_bary_eff_for_apex, v_b_cut, v_c_cut], 'black'); this.addPoly([p_bary_eff_for_apex, v_c_cut, v_a_cut], 'black'); this.addPoly([p_bary_eff_for_apex, v_a_cut, v_b_cut], 'black');
+                    this.addPoly([t_eff_vb, t_eff_vc, v_c_cut, v_b_cut], color_face_VbVc); this.addPoly([t_eff_vc, t_eff_va, v_a_cut, v_c_cut], color_face_VcVa); this.addPoly([t_eff_va, t_eff_vb, v_b_cut, v_a_cut], color_face_VaVb);
+                } else { 
+                    this.addPoly([p_bary_eff_for_apex, t_eff_vb, t_eff_vc], color_face_VbVc); this.addPoly([p_bary_eff_for_apex, t_eff_vc, t_eff_va], color_face_VcVa); this.addPoly([p_bary_eff_for_apex, t_eff_va, t_eff_vb], color_face_VaVb);
+                }
+            } else if (q_k > 0) { 
+                p_bary_eff_for_apex = getCentroid(t_eff_va, t_eff_vb, t_eff_vc);
+                this.addPoly([p_bary_eff_for_apex, t_eff_vb, t_eff_vc], 'black'); this.addPoly([p_bary_eff_for_apex, t_eff_vc, t_eff_va], 'black'); this.addPoly([p_bary_eff_for_apex, t_eff_va, t_eff_vb], 'black');
+                this.addPoly([t_eff_va, t_eff_vb, t_eff_vc], 'black');
+            }
+        }
+    }
+
+    const imageFileEl = document.getElementById('imageFile');
+    const uploadMenuBtn = document.getElementById('uploadMenuBtn');
+    const uploadDropdown = document.getElementById('uploadDropdown');
+    const processButton = document.getElementById('processButton');
+    const downloadSVGButtonEl = document.getElementById('downloadSVGButton');
+    const statusEl = document.getElementById('status');
+    const sourceCanvas = document.getElementById('sourceCanvas');
+    const sourceCtx = sourceCanvas.getContext('2d', { willReadFrequently: true });
+    const outputCanvas = document.getElementById('outputCanvas');
+    const outputCtx = outputCanvas.getContext('2d');
+    const originalImagePreview = document.getElementById('originalImagePreview');
+    
+    const paneOriginal = document.getElementById('paneOriginal');
+    const paneDecomposed = document.getElementById('paneDecomposed');
+    const outputWindow = document.getElementById('outputWindow');
+
+    let originalImageData = null;
+    let imageWidth = 0; let imageHeight = 0;
+    let processing = false; let currentFinalPolygons = null;
+    let currentFileName = 'decomposed_art';
+
+    const baseSettings = {
+        numSeeds: 333, numBoundarySeeds: 11,
+        powerFactor: 0.1, edgeThreshold: 33,
+        edgeWeightFactor: 0.618, minDistance: 18
+    };
+
+    function showStatus(text) {
+        if(text) { statusEl.textContent = text; statusEl.style.display = 'block'; }
+        else { statusEl.style.display = 'none'; }
+    }
+
+    uploadMenuBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        uploadDropdown.classList.toggle('show');
+    });
+    window.addEventListener('click', (e) => {
+        if (!uploadMenuBtn.contains(e.target)) uploadDropdown.classList.remove('show');
+    });
+    uploadDropdown.querySelectorAll('a').forEach(a => {
+        a.addEventListener('click', (e) => {
+            e.preventDefault();
+            uploadDropdown.classList.remove('show');
+            const val = e.target.getAttribute('data-val');
+            if (val === 'custom') imageFileEl.click();
+            else loadExample(val);
+        });
+    });
+
+    processButton.addEventListener('click', () => {
+        if (originalImageData && !processing) processImage();
+    });
+
+    outputWindow.addEventListener('mousedown', () => {
+        if(currentFinalPolygons) {
+            paneDecomposed.classList.remove('active');
+            paneOriginal.classList.add('active');
+        }
+    });
+    window.addEventListener('mouseup', () => {
+        if(currentFinalPolygons) {
+            paneOriginal.classList.remove('active');
+            paneDecomposed.classList.add('active');
+        }
+    });
+    outputWindow.addEventListener('touchstart', (e) => {
+        if(currentFinalPolygons) {
+            paneDecomposed.classList.remove('active');
+            paneOriginal.classList.add('active');
+        }
+    });
+    window.addEventListener('touchend', () => {
+        if(currentFinalPolygons) {
+            paneOriginal.classList.remove('active');
+            paneDecomposed.classList.add('active');
+        }
+    });
+
+    downloadSVGButtonEl.addEventListener('click', () => { if (currentFinalPolygons && !processing) downloadSVG(); });
+    
+    imageFileEl.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        currentFileName = file.name.split('.')[0];
+        loadImageFromFile(file);
+    });
+
+    document.addEventListener('DOMContentLoaded', () => {
+        loadExample('Mona_Lisa.png'); 
+    });
+
+    function updateButtonState(imageLoaded, imageProcessed = false) {
+        processButton.disabled = !imageLoaded || processing;
+        downloadSVGButtonEl.disabled = !imageProcessed || processing;
+    }
+
+    function loadExample(url) {
+        processing = true; currentFinalPolygons = null; updateButtonState(false, false);
+        showStatus('Loading...');
+        currentFileName = url.split('/').pop().split('.')[0];
+        const img = new Image();
+        img.crossOrigin = "Anonymous";
+        img.onload = () => {
+            imageWidth = img.width; imageHeight = img.height;
+            sourceCanvas.width = imageWidth; sourceCanvas.height = imageHeight;
+            sourceCtx.drawImage(img, 0, 0);
+            originalImageData = sourceCtx.getImageData(0, 0, imageWidth, imageHeight);
+            originalImagePreview.src = img.src;
+            processing = false; 
+            processImage(); 
+        };
+        img.onerror = () => { showStatus('Error loading.'); processing = false; updateButtonState(false); };
+        img.src = url;
+    }
+
+    function loadImageFromFile(file) {
+        processing = true; currentFinalPolygons = null; updateButtonState(false, false);
+        showStatus('Loading...');
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => {
+                imageWidth = img.width; imageHeight = img.height;
+                sourceCanvas.width = imageWidth; sourceCanvas.height = imageHeight;
+                sourceCtx.drawImage(img, 0, 0);
+                originalImageData = sourceCtx.getImageData(0, 0, imageWidth, imageHeight);
+                originalImagePreview.src = img.src;
+                processing = false; 
+                processImage();
+            }
+            img.onerror = () => { showStatus('Error.'); processing = false; updateButtonState(false); }
+            img.src = e.target.result;
+        }
+        reader.onerror = () => { showStatus('Error.'); processing = false; updateButtonState(false); }
+        reader.readAsDataURL(file);
+    }
+
+    function getPixelColor(imageData, x, y) {
+        x = Math.max(0, Math.min(Math.floor(x), imageData.width - 1)); y = Math.max(0, Math.min(Math.floor(y), imageData.height - 1));
+        const index = (y * imageData.width + x) * 4;
+        return { r: imageData.data[index], g: imageData.data[index + 1], b: imageData.data[index + 2], a: imageData.data[index + 3] };
+    }
+
+    function addBoundarySeeds(currentSeeds, width, height, numPerEdge) {
+        const bSeeds = [];
+        if (numPerEdge > 0) {
+            for (let i = 0; i <= numPerEdge; i++) {
+                const x = Math.round(i * (width - 1) / numPerEdge); bSeeds.push([x, 0]); bSeeds.push([x, height - 1]);
+            }
+            for (let i = 1; i < numPerEdge; i++) {
+                const y = Math.round(i * (height - 1) / numPerEdge); bSeeds.push([0, y]); bSeeds.push([width - 1, y]);
+            }
+        }
+        let allSeeds = currentSeeds.concat(bSeeds);
+        const unique = new Set(), res = [];
+        for (const s of allSeeds) { const k = `${Math.round(s[0])},${Math.round(s[1])}`; if (!unique.has(k)) { unique.add(k); res.push(s); } }
+        return res;
+    }
+
+    function generateSeeds(numDesiredSeeds, powerFactor, edgeThreshold, edgeWeightFactor, minDistance, width, height, imageData) {
+        const seeds = []; const numCandidates = numDesiredSeeds * 20; const candidatesInfo = [];
+        const grayscale = new Uint8Array(width * height); let maxMag = 0;
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const i = y * width + x; const r = imageData.data[i*4], g = imageData.data[i*4+1], b = imageData.data[i*4+2];
+                grayscale[i] = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
+                if (edgeWeightFactor > 0 && edgeWeightFactor <=1 ) {
+                    let Gx = 0, Gy = 0;
+                    for(let k_y = -1; k_y <= 1; k_y++) {
+                        for (let k_x = -1; k_x <= 1; k_x++) {
+                            const cY = y + k_y, cX = x + k_x;
+                            if (cY >= 0 && cY < height && cX >= 0 && cX < width) {
+                                const val = grayscale[cY * width + cX];
+                                Gx += val * [[-1,0,1],[-2,0,2],[-1,0,1]][k_y+1][k_x+1]; Gy += val * [[-1,-2,-1],[0,0,0],[1,2,1]][k_y+1][k_x+1];
+                            }
+                        }
+                    }
+                    let mag = Math.sqrt(Gx*Gx + Gy*Gy); if (mag > maxMag) maxMag = mag;
+                }
+            }
+        }
+        for (let i = 0; i < numCandidates; i++) {
+            const cX = Math.random() * width, cY = Math.random() * height;
+            const x = Math.floor(cX), y = Math.floor(cY);
+            if (x < 0 || x >= width || y < 0 || y >= height) continue;
+            const bness = grayscale[y * width + x] / 255.0; const dark = Math.pow(1.0 - bness, powerFactor);
+            let edgeC = 0;
+            if (edgeWeightFactor > 0 && edgeWeightFactor <=1) {
+                let Gx = 0, Gy = 0;
+                 for(let k_y = -1; k_y <= 1; k_y++) {
+                    for (let k_x = -1; k_x <= 1; k_x++) {
+                        const cY = y + k_y, cX = x + k_x;
+                        if (cY >= 0 && cY < height && cX >= 0 && cX < width) {
+                            const val = grayscale[cY * width + cX];
+                            Gx += val * [[-1,0,1],[-2,0,2],[-1,0,1]][k_y+1][k_x+1]; Gy += val * [[-1,-2,-1],[0,0,0],[1,2,1]][k_y+1][k_x+1];
+                        }
+                    }
+                }
+                let mag = Math.sqrt(Gx*Gx + Gy*Gy);
+                if (mag > edgeThreshold) edgeC = (maxMag > 0) ? (mag / maxMag) : 0;
+            }
+            const cWeight = edgeWeightFactor * edgeC + (1.0 - edgeWeightFactor) * dark;
+            candidatesInfo.push({ point: [cX, cY], weight: 0.02 + 0.98 * Math.max(0, Math.min(1, cWeight)) });
+        }
+        candidatesInfo.sort((a, b) => b.weight - a.weight); const minDSq = minDistance * minDistance;
+        for (const c of candidatesInfo) {
+            if (seeds.length >= numDesiredSeeds) break;
+            let tooClose = false;
+            for (const s of seeds) { if (Math.pow(s[0]-c.point[0],2) + Math.pow(s[1]-c.point[1],2) < minDSq) { tooClose = true; break; } }
+            if (!tooClose) seeds.push(c.point);
+        }
+        while (seeds.length < numDesiredSeeds) seeds.push([Math.random() * width, Math.random() * height]);
+        return seeds;
+    }
+
+    async function processImage() {
+        if (processing) return;
+        processing = true; updateButtonState(true, false);
+        if (!d3 || !d3.Delaunay || !originalImageData) { processing = false; updateButtonState(false, false); showStatus(); return; }
+        
+        showStatus('Processing...');
+        void outputCanvas.offsetWidth;
+
+        await new Promise(r => setTimeout(r, 50));
+
+            const cArea = imageWidth * imageHeight; const bArea = baseSettings.imageWidth * baseSettings.imageHeight;
+        let aScale = Math.max(0.1, Math.min(10.0, (bArea > 0 && cArea > 0) ? (cArea / bArea) : 1.0));
+        let lScale = Math.max(0.25, Math.min(4.0, (Math.min(baseSettings.imageWidth, baseSettings.imageHeight) > 0) ? (Math.min(imageWidth, imageHeight) / Math.min(baseSettings.imageWidth, baseSettings.imageHeight)) : 1.0));
+
+        const numSeeds = Math.max(100, Math.round(baseSettings.numSeeds * aScale));
+        const numBSeeds = Math.max(5, Math.round(baseSettings.numBoundarySeeds * lScale));
+        const minD = Math.max(1, Math.round(baseSettings.minDistance * lScale));
+
+        let seeds = generateSeeds(numSeeds, baseSettings.powerFactor, baseSettings.edgeThreshold, baseSettings.edgeWeightFactor, minD, imageWidth, imageHeight, originalImageData);
+        seeds = addBoundarySeeds(seeds, imageWidth, imageHeight, numBSeeds);
+        
+        const pForDelaunay = seeds.map(s => [s[0], s[1]]);
+        const delaunay = d3.Delaunay.from(pForDelaunay);
+
+        const decomposer = new Decomposer();
+        for (let i = 0; i < delaunay.triangles.length; i += 3) {
+            const p1 = pForDelaunay[delaunay.triangles[i]], p2 = pForDelaunay[delaunay.triangles[i+1]], p3 = pForDelaunay[delaunay.triangles[i+2]];
+            if (!p1 || !p2 || !p3) continue;
+            const col = getPixelColor(originalImageData, (p1[0]+p2[0]+p3[0])/3, (p1[1]+p2[1]+p3[1])/3);
+            decomposer.decompose(p1, p2, p3, col.r, col.g, col.b);
+        }
+
+        outputCanvas.width = imageWidth; 
+        outputCanvas.height = imageHeight;
+
+        outputCtx.clearRect(0, 0, outputCanvas.width, outputCanvas.height);
+        outputCtx.fillStyle = "#111"; outputCtx.fillRect(0, 0, imageWidth, imageHeight);
+
+        currentFinalPolygons = decomposer.polygons;
+
+        for (const poly of decomposer.polygons) {
+            const rgb = PRIMITIVE_COLORS_CSS_MAP[poly.colorKey].fill;
+            outputCtx.beginPath();
+            outputCtx.moveTo(poly.vertices[0][0], poly.vertices[0][1]);
+            for(let v=1; v<poly.vertices.length; v++) outputCtx.lineTo(poly.vertices[v][0], poly.vertices[v][1]);
+            outputCtx.closePath();
+
+            outputCtx.fillStyle = rgb;
+            outputCtx.fill();
+            outputCtx.strokeStyle = `rgba(0,0,0,0.1)`;
+            outputCtx.lineWidth = 0.5; outputCtx.stroke();
+        }
+        
+        processing = false; 
+        updateButtonState(true, true);
+        showStatus(null);
+    }
+
+    function generateSVGString() {
+        if (!currentFinalPolygons || !originalImageData) return null;
+        let svgString = `<svg width="${imageWidth}" height="${imageHeight}" viewBox="0 0 ${imageWidth} ${imageHeight}" xmlns="http://www.w3.org/2000/svg" style="background-color: #111;">\n`;
+        for (const poly of currentFinalPolygons) {
+            const fill = PRIMITIVE_COLORS_CSS_MAP[poly.colorKey].fill;
+            const pts = poly.vertices.map(p => `${p[0].toFixed(2)},${p[1].toFixed(2)}`).join(" ");
+            svgString += `  <polygon points="${pts}" fill="${fill}" stroke="${fill}" stroke-width="0.3" />\n`;
+        }
+        return svgString + `</svg>`;
+    }
+
+    function downloadSVG() {
+        const svgData = generateSVGString();
+        if (svgData) {
+            const blob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+            const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url;
+            a.download = currentFileName + '_decomposed.svg';
+            document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+        }
+    }
+</script>
+</body>
+</html>
