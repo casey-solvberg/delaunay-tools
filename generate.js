@@ -119,7 +119,7 @@ function generateSeeds(numDesiredSeeds, powerFactor, edgeThreshold, edgeWeightFa
             }
         }
 
-        const combinedRawWeight = edgeWeightFactor * (1.0 - edgeComponent) + (1.0 - edgeWeightFactor) * darknessComponent;
+        const combinedRawWeight = edgeWeightFactor * edgeComponent + (1.0 - edgeWeightFactor) * (1.0 - darknessComponent);
         const weight = baseWeight + (1.0 - baseWeight) * Math.max(0, Math.min(1, combinedRawWeight));
 
         candidatesInfo.push({ point: [candX, candY], weight: weight });
