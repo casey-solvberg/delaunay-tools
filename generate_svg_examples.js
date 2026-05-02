@@ -43,7 +43,7 @@ function generateEdgeAwareSeeds(numDesiredSeeds, width, height, imageData) {
     for (let i = 0; i < numCandidates; i++) {
         const x = Math.floor(Math.random() * (width-2)) + 1; const y = Math.floor(Math.random() * (height-2)) + 1;
         let edgeComponent = (maxMagnitude > 0) ? (magnitudes[y * width + x] / maxMagnitude) : 0;
-        candidatesInfo.push({ point: [x, y], weight: baseWeight + (1.0 - baseWeight) * edgeComponent });
+        candidatesInfo.push({ point: [x, y], weight: baseWeight + (1.0 - baseWeight) * (1.0 - edgeComponent) });
     }
     candidatesInfo.sort((a, b) => b.weight - a.weight);
     const numPerEdge = 10;

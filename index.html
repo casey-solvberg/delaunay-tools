@@ -307,7 +307,7 @@
                 let mag = Math.sqrt(Gx*Gx + Gy*Gy);
                 if (mag > edgeThreshold) edgeC = (maxMag > 0) ? (mag / maxMag) : 0;
             }
-            const cWeight = edgeWeightFactor * edgeC + (1.0 - edgeWeightFactor) * dark;
+            const cWeight = edgeWeightFactor * (1.0 - edgeC) + (1.0 - edgeWeightFactor) * dark;
             candidatesInfo.push({ point: [cX, cY], weight: 0.02 + 0.98 * Math.max(0, Math.min(1, cWeight)) });
         }
         candidatesInfo.sort((a, b) => b.weight - a.weight); const minDSq = minDistance * minDistance;
