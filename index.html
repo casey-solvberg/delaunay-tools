@@ -26,8 +26,8 @@
                     <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
                 </button>
                 <div id="uploadDropdown" class="dropdown-content">
-                    <a href="#" data-val="Mona_Lisa.png">Mona Lisa</a>
-                    <a href="#" data-val="Marilyn_Monroe.jpg">Marilyn Monroe</a>
+                    <a href="#" data-val="public/Mona_Lisa.png">Mona Lisa</a>
+                    <a href="#" data-val="public/Marilyn_Monroe.jpg">Marilyn Monroe</a>
                     <a href="#" data-val="custom">📁 Upload custom...</a>
                 </div>
             </div>
@@ -136,7 +136,7 @@
         currentFileName = file.name.split('.')[0]; loadImageFromFile(file);
     });
 
-    document.addEventListener('DOMContentLoaded', () => { loadExample('Mona_Lisa.png'); });
+    document.addEventListener('DOMContentLoaded', () => { loadExample('public/Mona_Lisa.png'); });
 
     function updateButtonState(imageLoaded, imageProcessed = false) {
         processButton.disabled = !imageLoaded || processing; downloadSVGButtonEl.disabled = !imageProcessed || processing;
