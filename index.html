@@ -10,7 +10,6 @@
     <nav>
         <a href="index.html" class="active">Delaunay Generator</a>
         <a href="decomposer.html">Color Decomposer</a>
-        <a href="hue_shift.html">Hue Matrix Shift</a>
     </nav>
     <div class="app-container" id="appContainer">
         <div class="output-window">
@@ -21,7 +20,7 @@
         
         <input type="file" id="imageFile" accept="image/*">
         
-        <div class="controls-bar">
+        <div class="controls-bar" style="flex-wrap: wrap; gap: 15px;">
             <div class="dropdown">
                 <button class="control-button" id="uploadMenuBtn" title="Select Image">
                     <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
@@ -30,6 +29,28 @@
                     <a href="#" data-val="Mona_Lisa.png">Mona Lisa</a>
                     <a href="#" data-val="Marilyn_Monroe.jpg">Marilyn Monroe</a>
                     <a href="#" data-val="custom">📁 Upload custom...</a>
+                </div>
+            </div>
+
+            <div class="control-group" style="display: flex; gap: 20px; background: rgba(0,0,0,0.2); padding: 5px 15px; border-radius: 8px; align-items: center;">
+                <div style="display: flex; flex-direction: column; justify-content: center;">
+                    <label for="seedsSlider" style="font-size: 0.75rem; font-weight: bold; color: #aaa; margin-bottom: 4px;">Initial Seeds</label>
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                        <input type="range" id="seedsSlider" min="100" max="2000" value="333" step="1" style="width: 80px;">
+                        <input type="number" id="seedsInput" value="333" min="100" max="2000" style="width: 45px; background: #222; color: #fff; border: 1px solid #444; border-radius: 4px; padding: 2px; text-align: center; font-size: 0.8rem;">
+                    </div>
+                </div>
+
+                <div style="display: flex; flex-direction: column; justify-content: center;">
+                    <label for="edgeSlider" style="font-size: 0.75rem; font-weight: bold; color: #aaa; margin-bottom: 4px;">Contrast vs Darkness</label>
+                    <div style="display: flex; align-items: center; gap: 4px;">
+                        <span style="font-size: 0.7rem; color: #888;">Dark</span>
+                        <input type="range" id="edgeSlider" min="0" max="100" value="62" step="1" style="width: 80px;">
+                        <div style="display: flex; align-items: center; gap: 2px;">
+                            <input type="number" id="edgeInput" value="62" min="0" max="100" style="width: 40px; background: #222; color: #fff; border: 1px solid #444; border-radius: 4px; padding: 2px; text-align: center; font-size: 0.8rem;">
+                            <span style="font-size: 0.75rem; color: #888;">%</span>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -44,7 +65,6 @@
     </div>
     <div id="sourceCanvasContainer"><canvas id="sourceCanvas"></canvas></div>
 
-<!-- ОБРАТИ ВНИМАНИЕ: type="module" позволяет нам делать import -->
 <script type="module">
     import { Delaunay } from 'd3-delaunay';
     import { getPixelColor } from './src/core/color.js';
@@ -62,116 +82,91 @@
     const outputCtx = outputCanvas.getContext('2d');
     const originalImagePreview = document.getElementById('originalImagePreview');
     
+    const seedsSlider = document.getElementById('seedsSlider');
+    const seedsInput = document.getElementById('seedsInput');
+    const edgeSlider = document.getElementById('edgeSlider');
+    const edgeInput = document.getElementById('edgeInput');
+
     const paneOriginal = document.getElementById('paneOriginal');
     const paneDelaunay = document.getElementById('paneDelaunay');
 
-    paneDelaunay.addEventListener('mousedown', () => {
-        paneDelaunay.classList.remove('active');
-        paneOriginal.classList.add('active');
+    seedsSlider.addEventListener('input', (e) => { seedsInput.value = e.target.value; });
+    seedsInput.addEventListener('change', (e) => {
+        let val = parseInt(e.target.value, 10);
+        if (isNaN(val) || val < 100) val = 100; if (val > 2000) val = 2000;
+        e.target.value = val; seedsSlider.value = val;
     });
-    window.addEventListener('mouseup', () => {
-        paneOriginal.classList.remove('active');
-        paneDelaunay.classList.add('active');
+
+    edgeSlider.addEventListener('input', (e) => { edgeInput.value = e.target.value; });
+    edgeInput.addEventListener('change', (e) => {
+        let val = parseInt(e.target.value, 10);
+        if (isNaN(val)) val = 62; if (val < 0) val = 0; if (val > 100) val = 100;
+        e.target.value = val; edgeSlider.value = val;
     });
-    paneDelaunay.addEventListener('touchstart', (e) => {
-        paneDelaunay.classList.remove('active');
-        paneOriginal.classList.add('active');
-    });
-    window.addEventListener('touchend', () => {
-        paneOriginal.classList.remove('active');
-        paneDelaunay.classList.add('active');
-    });
+
+    paneDelaunay.addEventListener('mousedown', () => { paneDelaunay.classList.remove('active'); paneOriginal.classList.add('active'); });
+    window.addEventListener('mouseup', () => { paneOriginal.classList.remove('active'); paneDelaunay.classList.add('active'); });
+    paneDelaunay.addEventListener('touchstart', () => { paneDelaunay.classList.remove('active'); paneOriginal.classList.add('active'); });
+    window.addEventListener('touchend', () => { paneOriginal.classList.remove('active'); paneDelaunay.classList.add('active'); });
 
     let originalImageData = null;
     let imageWidth = 0; let imageHeight = 0;
     let processing = false; let currentDelaunayData = null;
     let currentFileName = 'delaunay_art';
 
-    const GOLDEN_RATIO_CONJUGATE = parseFloat(((Math.sqrt(5) - 1) / 2).toFixed(4));
-    const baseSettings = {
-        imageWidth: 1024, imageHeight: 1536,
-        numSeeds: 333, numBoundarySeeds: 11,
-        powerFactor: 0.1, edgeThreshold: 33,
-        edgeWeightFactor: GOLDEN_RATIO_CONJUGATE, minDistance: 18
-    };
+    const baseSettings = { imageWidth: 1024, imageHeight: 1536, numBoundarySeeds: 11, powerFactor: 0.1, edgeThreshold: 33, minDistance: 18 };
 
-    function showStatus(text) {
-        if(text) { statusEl.textContent = text; statusEl.style.display = 'block'; }
-        else { statusEl.style.display = 'none'; }
-    }
+    function showStatus(text) { statusEl.textContent = text ? text : ''; statusEl.style.display = text ? 'block' : 'none'; }
 
-    uploadMenuBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        uploadDropdown.classList.toggle('show');
-    });
-    window.addEventListener('click', (e) => {
-        if (!uploadMenuBtn.contains(e.target)) uploadDropdown.classList.remove('show');
-    });
+    uploadMenuBtn.addEventListener('click', (e) => { e.stopPropagation(); uploadDropdown.classList.toggle('show'); });
+    window.addEventListener('click', (e) => { if (!uploadMenuBtn.contains(e.target)) uploadDropdown.classList.remove('show'); });
     uploadDropdown.querySelectorAll('a').forEach(a => {
         a.addEventListener('click', (e) => {
-            e.preventDefault();
-            uploadDropdown.classList.remove('show');
+            e.preventDefault(); uploadDropdown.classList.remove('show');
             const val = e.target.getAttribute('data-val');
-            if (val === 'custom') imageFileEl.click();
-            else loadExample(val);
+            if (val === 'custom') imageFileEl.click(); else loadExample(val);
         });
     });
 
-    processButton.addEventListener('click', () => {
-        if (originalImageData && !processing) processImage();
-    });
-
+    processButton.addEventListener('click', () => { if (originalImageData && !processing) processImage(); });
     downloadSVGButtonEl.addEventListener('click', () => { if (currentDelaunayData && !processing) downloadSVG(); });
     
     imageFileEl.addEventListener('change', (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        currentFileName = file.name.split('.')[0];
-        loadImageFromFile(file);
+        const file = e.target.files[0]; if (!file) return;
+        currentFileName = file.name.split('.')[0]; loadImageFromFile(file);
     });
 
-    document.addEventListener('DOMContentLoaded', () => {
-        loadExample('Mona_Lisa.png'); 
-    });
+    document.addEventListener('DOMContentLoaded', () => { loadExample('Mona_Lisa.png'); });
 
     function updateButtonState(imageLoaded, imageProcessed = false) {
-        processButton.disabled = !imageLoaded || processing;
-        downloadSVGButtonEl.disabled = !imageProcessed || processing;
+        processButton.disabled = !imageLoaded || processing; downloadSVGButtonEl.disabled = !imageProcessed || processing;
+        seedsSlider.disabled = processing; seedsInput.disabled = processing; edgeSlider.disabled = processing; edgeInput.disabled = processing;
     }
 
     function loadExample(url) {
-        processing = true; currentDelaunayData = null; updateButtonState(false, false);
-        showStatus('Loading...');
+        processing = true; currentDelaunayData = null; updateButtonState(false, false); showStatus('Loading...');
         currentFileName = url.split('/').pop().split('.')[0];
-        const img = new Image();
-        img.crossOrigin = "Anonymous";
+        const img = new Image(); img.crossOrigin = "Anonymous";
         img.onload = () => {
             imageWidth = img.width; imageHeight = img.height;
             sourceCanvas.width = imageWidth; sourceCanvas.height = imageHeight;
-            sourceCtx.drawImage(img, 0, 0);
-            originalImageData = sourceCtx.getImageData(0, 0, imageWidth, imageHeight);
-            originalImagePreview.src = img.src;
-            processing = false; 
-            processImage(); 
+            sourceCtx.drawImage(img, 0, 0); originalImageData = sourceCtx.getImageData(0, 0, imageWidth, imageHeight);
+            originalImagePreview.src = img.src; processing = false; processImage(); 
         };
         img.onerror = () => { showStatus('Error loading.'); processing = false; updateButtonState(false); };
         img.src = url;
     }
 
     function loadImageFromFile(file) {
-        processing = true; currentDelaunayData = null; updateButtonState(false, false);
-        showStatus('Loading...');
+        processing = true; currentDelaunayData = null; updateButtonState(false, false); showStatus('Loading...');
         const reader = new FileReader();
         reader.onload = (e) => {
             const img = new Image();
             img.onload = () => {
                 imageWidth = img.width; imageHeight = img.height;
                 sourceCanvas.width = imageWidth; sourceCanvas.height = imageHeight;
-                sourceCtx.drawImage(img, 0, 0);
-                originalImageData = sourceCtx.getImageData(0, 0, imageWidth, imageHeight);
-                originalImagePreview.src = img.src;
-                processing = false; 
-                processImage();
+                sourceCtx.drawImage(img, 0, 0); originalImageData = sourceCtx.getImageData(0, 0, imageWidth, imageHeight);
+                originalImagePreview.src = img.src; processing = false; processImage();
             }
             img.onerror = () => { showStatus('Error.'); processing = false; updateButtonState(false); }
             img.src = e.target.result;
@@ -185,20 +180,21 @@
         processing = true; updateButtonState(true, false);
         if (!Delaunay || !originalImageData) { processing = false; updateButtonState(false, false); showStatus(); return; }
         
-        showStatus('Processing...');
-        void outputCanvas.offsetWidth;
-        
+        showStatus('Processing...'); void outputCanvas.offsetWidth;
         await new Promise(r => setTimeout(r, 50));
+
+        const userNumSeeds = parseInt(seedsInput.value, 10);
+        const userEdgeWeightFactor = parseInt(edgeInput.value, 10) / 100.0;
 
         const cArea = imageWidth * imageHeight; const bArea = baseSettings.imageWidth * baseSettings.imageHeight;
         let aScale = Math.max(0.1, Math.min(10.0, (bArea > 0 && cArea > 0) ? (cArea / bArea) : 1.0));
         let lScale = Math.max(0.25, Math.min(4.0, (Math.min(baseSettings.imageWidth, baseSettings.imageHeight) > 0) ? (Math.min(imageWidth, imageHeight) / Math.min(baseSettings.imageWidth, baseSettings.imageHeight)) : 1.0));
 
-        const numSeeds = Math.max(100, Math.round(baseSettings.numSeeds * aScale));
+        const numSeeds = Math.max(100, Math.round(userNumSeeds * aScale));
         const numBSeeds = Math.max(5, Math.round(baseSettings.numBoundarySeeds * lScale));
         const minD = Math.max(1, Math.round(baseSettings.minDistance * lScale));
 
-        let seeds = generateSeeds(numSeeds, baseSettings.powerFactor, baseSettings.edgeThreshold, baseSettings.edgeWeightFactor, minD, imageWidth, imageHeight, originalImageData);
+        let seeds = generateSeeds(numSeeds, baseSettings.powerFactor, baseSettings.edgeThreshold, userEdgeWeightFactor, minD, imageWidth, imageHeight, originalImageData);
         seeds = addBoundarySeeds(seeds, imageWidth, imageHeight, numBSeeds);
         
         if (seeds.length < 3) { processing = false; updateButtonState(true, false); showStatus(); return; }
@@ -206,12 +202,8 @@
         const delaunay = Delaunay.from(pForDelaunay);
         currentDelaunayData = { delaunay, pointsForDelaunay: pForDelaunay };
 
-        outputCanvas.width = imageWidth; 
-        outputCanvas.height = imageHeight;
-
+        outputCanvas.width = imageWidth; outputCanvas.height = imageHeight;
         outputCtx.clearRect(0, 0, outputCanvas.width, outputCanvas.height);
-        
-        // Рисуем исходник на фоне (если нужно)
         outputCtx.drawImage(sourceCanvas, 0, 0, imageWidth, imageHeight);
 
         for (let i = 0; i < delaunay.triangles.length; i += 3) {
@@ -228,9 +220,7 @@
             outputCtx.lineWidth = 0.5; outputCtx.stroke();
         }
         
-        processing = false; 
-        updateButtonState(true, true);
-        showStatus(null);
+        processing = false; updateButtonState(true, true); showStatus(null);
     }
 
     function generateSVGString() {
@@ -240,13 +230,10 @@
         for (let i = 0; i < delaunay.triangles.length; i += 3) {
             const p1 = pointsForDelaunay[delaunay.triangles[i]], p2 = pointsForDelaunay[delaunay.triangles[i+1]], p3 = pointsForDelaunay[delaunay.triangles[i+2]];
             if (!p1 || !p2 || !p3) continue;
-            
             const c = getPixelColor(originalImageData, (p1[0]+p2[0]+p3[0])/3, (p1[1]+p2[1]+p3[1])/3);
             let fill = c.a===255 ? `rgb(${c.r},${c.g},${c.b})` : `rgba(${c.r},${c.g},${c.b},${(c.a/255).toFixed(2)})`;
             let stroke = `rgba(${Math.floor(c.r*0.7)},${Math.floor(c.g*0.7)},${Math.floor(c.b*0.7)},0.6)`;
-            let strokeW = 0.3;
-            
-            svgString += `  <polygon points="${p1[0].toFixed(2)},${p1[1].toFixed(2)} ${p2[0].toFixed(2)},${p2[1].toFixed(2)} ${p3[0].toFixed(2)},${p3[1].toFixed(2)}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeW}" />\n`;
+            svgString += `  <polygon points="${p1[0].toFixed(2)},${p1[1].toFixed(2)} ${p2[0].toFixed(2)},${p2[1].toFixed(2)} ${p3[0].toFixed(2)},${p3[1].toFixed(2)}" fill="${fill}" stroke="${stroke}" stroke-width="0.3" />\n`;
         }
         return svgString + `</svg>`;
     }
@@ -256,7 +243,7 @@
         if (svgData) {
             const blob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
             const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url;
-            a.download = currentFileName + '.svg';
+            a.download = `${currentFileName}_seeds${seedsInput.value}_edge${edgeInput.value}.svg`;
             document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
         }
     }
