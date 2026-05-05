@@ -158,7 +158,8 @@
         if (cachedDelaunay && !processing) applyHueShiftFast();
     });
 
-    const colorsCMYK = ['cyan', 'magenta', 'yellow', 'black'];
+    // Убрали черный для идеальной симметрии в UI (3x3)
+    const colorsCMYK = ['cyan', 'magenta', 'yellow'];
     const colorsRGB = ['red', 'green', 'blue'];
 
     function initPalette() {
@@ -330,21 +331,47 @@
         }
     }
 
+    function rgbToHex(r, g, b) {
+        return ((1 << 24) + (Math.round(r) << 16) + (Math.round(g) << 8) + Math.round(b)).toString(16).slice(1).toUpperCase();
+    }
+
     function generateSVGString() {
         if (!currentFinalPolygons || !originalImageData) return null;
         const shiftX = parseInt(hueInput.value, 10);
+        
         let svgString = `<svg width="${imageWidth}" height="${imageHeight}" viewBox="0 0 ${imageWidth} ${imageHeight}" xmlns="http://www.w3.org/2000/svg" style="background-color: #111;">\n`;
         
+        const groupedPolygons = {};
         for (const poly of currentFinalPolygons) {
-            const baseRGB = PRIMITIVE_COLORS_RGB[poly.colorKey];
+            if (!groupedPolygons[poly.colorKey]) {
+                groupedPolygons[poly.colorKey] = [];
+            }
+            groupedPolygons[poly.colorKey].push(poly);
+        }
+
+        for (const [key, polygons] of Object.entries(groupedPolygons)) {
+            const baseRGB = PRIMITIVE_COLORS_RGB[key];
             let renderRGB = baseRGB;
-            if (poly.colorKey !== 'black' && poly.colorKey !== 'white') {
+            
+            if (key !== 'black' && key !== 'white') {
                 renderRGB = shiftHue(baseRGB[0], baseRGB[1], baseRGB[2], -shiftX);
             }
-            const pts = poly.vertices.map(p => `${p[0].toFixed(2)},${p[1].toFixed(2)}`).join(" ");
+            
+            const hexColor = rgbToHex(renderRGB[0], renderRGB[1], renderRGB[2]);
+            const capitalizedKey = key.charAt(0).toUpperCase() + key.slice(1);
+            const groupId = `Base${capitalizedKey}_HEX_${hexColor}`;
+            
+            svgString += `  <g id="${groupId}">\n`;
+            
             const col = `rgb(${renderRGB[0]},${renderRGB[1]},${renderRGB[2]})`;
-            svgString += `  <polygon points="${pts}" fill="${col}" stroke="${col}" stroke-width="0.3" />\n`;
+            for (const poly of polygons) {
+                const pts = poly.vertices.map(p => `${p[0].toFixed(2)},${p[1].toFixed(2)}`).join(" ");
+                svgString += `    <polygon points="${pts}" fill="${col}" stroke="${col}" stroke-width="0.3" />\n`;
+            }
+            
+            svgString += `  </g>\n`;
         }
+        
         return svgString + `</svg>`;
     }
 
