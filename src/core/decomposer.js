@@ -39,7 +39,9 @@ export class Decomposer {
             this.addPoly([v_c_orig, v_a_orig, p_apex], 'black'); 
             return;
         }
-        if (qSumCore === 255 && q_k === 0 && q_w_total === 0) {
+        
+        // ВОТ ЗДЕСЬ ИСПРАВЛЕНИЕ: добавлено && qCoreCandidates.length === 1
+        if (qSumCore === 255 && q_k === 0 && q_w_total === 0 && qCoreCandidates.length === 1) {
             const p_apex = getCentroid(v_a_orig, v_b_orig, v_c_orig);
             const coreColor = qCoreCandidates[0].name;
             this.addPoly([v_a_orig, v_b_orig, p_apex], coreColor); 

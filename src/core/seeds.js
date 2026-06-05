@@ -24,7 +24,7 @@ export function addBoundarySeeds(currentSeeds, width, height, numPerEdge) {
     return res;
 }
 
-export function generateSeeds(numDesiredSeeds, powerFactor, edgeThreshold, edgeWeightFactor, minDistance, width, height, imageData) {
+export function generateSeeds(numDesiredSeeds, powerFactor, edgeThreshold, edgeWeightFactor, minDistance, width, height, imageData, isReverseMode = false) {
     const seeds = []; 
     const numCandidates = numDesiredSeeds * 20; 
     const candidatesInfo = [];
@@ -79,8 +79,11 @@ export function generateSeeds(numDesiredSeeds, powerFactor, edgeThreshold, edgeW
             if (mag > edgeThreshold) edgeC = (maxMag > 0) ? (mag / maxMag) : 0;
         }
         
-        // Формула с инвертированной темнотой и обычным Собелем
-        const cWeight = edgeWeightFactor * edgeC + (1.0 - edgeWeightFactor) * (1.0 - dark);
+        // Инверсия логики для Reverse Mode
+        let baseTone = isReverseMode ? (1.0 - dark) : dark; // Реверс ищет свет
+        let baseEdge = isReverseMode ? (1.0 - edgeC) : edgeC; // Реверс ищет плоские зоны
+        
+        const cWeight = edgeWeightFactor * baseEdge + (1.0 - edgeWeightFactor) * baseTone;
         
         candidatesInfo.push({ point: [cX, cY], weight: 0.02 + 0.98 * Math.max(0, Math.min(1, cWeight)) });
     }

@@ -44,9 +44,15 @@
                 </div>
 
                 <div style="display: flex; flex-direction: column; justify-content: center;">
-                    <label for="edgeSlider" style="font-size: 0.75rem; font-weight: bold; color: #aaa; margin-bottom: 4px;">Contrast vs Dark</label>
+                    <div style="display: flex; align-items: center; margin-bottom: 4px;">
+                        <label id="edgeLabelMain" style="font-size: 0.75rem; font-weight: bold; color: #aaa; transition: 0.3s;">Contrast vs Dark</label>
+                        <label class="switch" title="Reverse Mode">
+                            <input type="checkbox" id="reverseToggle">
+                            <span class="slider-toggle"></span>
+                        </label>
+                    </div>
                     <div style="display: flex; align-items: center; gap: 4px;">
-                        <span style="font-size: 0.7rem; color: #888;">Dark</span>
+                        <span id="edgeLabelSub" style="font-size: 0.7rem; color: #888; min-width: 25px; transition: 0.3s;">Dark</span>
                         <input type="range" id="edgeSlider" min="0" max="100" value="62" step="1" style="width: 70px;">
                         <div style="display: flex; align-items: center; gap: 2px;">
                             <input type="number" id="edgeInput" value="62" min="0" max="100" style="width: 40px; background: #222; color: #fff; border: 1px solid #444; border-radius: 4px; padding: 2px; text-align: center; font-size: 0.8rem;">
@@ -110,6 +116,10 @@
     const edgeInput = document.getElementById('edgeInput');
     const hueSlider = document.getElementById('hueSlider');
     const hueInput = document.getElementById('hueInput');
+    
+    const reverseToggle = document.getElementById('reverseToggle');
+    const edgeLabelMain = document.getElementById('edgeLabelMain');
+    const edgeLabelSub = document.getElementById('edgeLabelSub');
 
     const paletteCMYK = document.getElementById('paletteCMYK');
     const paletteRGB = document.getElementById('paletteRGB');
@@ -138,6 +148,19 @@
         let val = parseInt(e.target.value, 10);
         if (isNaN(val)) val = 62; if (val < 0) val = 0; if (val > 100) val = 100;
         e.target.value = val; edgeSlider.value = val;
+    });
+    
+    reverseToggle.addEventListener('change', (e) => {
+        if (e.target.checked) {
+            edgeLabelMain.textContent = 'Homogeneity vs Light';
+            edgeLabelMain.style.color = '#3b82f6';
+            edgeLabelSub.textContent = 'Light';
+        } else {
+            edgeLabelMain.textContent = 'Contrast vs Dark';
+            edgeLabelMain.style.color = '#aaa';
+            edgeLabelSub.textContent = 'Dark';
+        }
+        if (originalImageData && !processing) generateGridAndProcess();
     });
     
     hueSlider.addEventListener('input', (e) => {
@@ -226,6 +249,7 @@
         seedsSlider.disabled = processing; seedsInput.disabled = processing; 
         edgeSlider.disabled = processing; edgeInput.disabled = processing;
         hueSlider.disabled = processing; hueInput.disabled = processing;
+        reverseToggle.disabled = processing;
     }
 
     function loadExample(url) {
@@ -267,6 +291,7 @@
 
         const userNumSeeds = parseInt(seedsInput.value, 10);
         const userEdgeWeightFactor = parseInt(edgeInput.value, 10) / 100.0;
+        const isReverseMode = reverseToggle.checked;
 
         const cArea = imageWidth * imageHeight; const bArea = baseSettings.imageWidth * baseSettings.imageHeight;
         let aScale = Math.max(0.1, Math.min(10.0, (bArea > 0 && cArea > 0) ? (cArea / bArea) : 1.0));
@@ -276,7 +301,7 @@
         const numBSeeds = Math.max(5, Math.round(baseSettings.numBoundarySeeds * lScale));
         const minD = Math.max(1, Math.round(baseSettings.minDistance * lScale));
 
-        let seeds = generateSeeds(numSeeds, baseSettings.powerFactor, baseSettings.edgeThreshold, userEdgeWeightFactor, minD, imageWidth, imageHeight, originalImageData);
+        let seeds = generateSeeds(numSeeds, baseSettings.powerFactor, baseSettings.edgeThreshold, userEdgeWeightFactor, minD, imageWidth, imageHeight, originalImageData, isReverseMode);
         seeds = addBoundarySeeds(seeds, imageWidth, imageHeight, numBSeeds);
         
         cachedPointsForDelaunay = seeds.map(s => [s[0], s[1]]);
